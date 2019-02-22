@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 )
 
+// 返回两个值中更小的
 func min(a, b int) int {
 	if a <= b {
 		return a
@@ -17,6 +18,7 @@ func min(a, b int) int {
 	return b
 }
 
+// 返回URL中参数的个数，最多255个
 func countParams(path string) uint8 {
 	var n uint
 	for i := 0; i < len(path); i++ {
@@ -40,15 +42,23 @@ const (
 	catchAll
 )
 
+// 定义前缀树节点
+// 这棵前缀树是通过指针数组来构建的
 type node struct {
-	path      string
+	//当前节点的URL路径
+	path string
+	//是否有通配符
 	wildChild bool
+	//节点类型
 	nType     nodeType
 	maxParams uint8
 	indices   string
-	children  []*node
-	handle    Handle
-	priority  uint32
+	//节点的子节点
+	children []*node
+	//处理函数
+	handle Handle
+	//优先级
+	priority uint32
 }
 
 // increments priority of the given child and reorders if necessary
@@ -75,16 +85,18 @@ func (n *node) incrementChildPrio(pos int) int {
 	return newPos
 }
 
-// addRoute adds a node with the given handle to the path.
-// Not concurrency-safe!
+// 把指定路径和处理函数作为node添加到前缀树中
+// 这不是并发安全的
 func (n *node) addRoute(path string, handle Handle) {
 	fullPath := path
+	// 当前节点的优先级加一
 	n.priority++
+	// 获取URL中有多少参数
 	numParams := countParams(path)
 
-	// non-empty tree
+	// 以下为当前节点有子节点或者有路径的情况
 	if len(n.path) > 0 || len(n.children) > 0 {
-	walk:
+	walk: // 注意，这个walk是goto标记，其他代码可以通过continue walk跳转回这个地方
 		for {
 			// Update maxParams of the current node
 			if numParams > n.maxParams {
@@ -94,14 +106,17 @@ func (n *node) addRoute(path string, handle Handle) {
 			// Find the longest common prefix.
 			// This also implies that the common prefix contains no ':' or '*'
 			// since the existing key can't contain those chars.
+			// 找到需要添加的node的路径和当前node的路径之间的公共前缀，比如需要添加的node路径为'/group/groupinfo'，当前node路径为'/group'
 			i := 0
 			max := min(len(path), len(n.path))
 			for i < max && path[i] == n.path[i] {
 				i++
 			}
 
-			// Split edge
+			// 第一步，判断当前节点是否需要拆分成父子两个节点
+			// 比如需要添加的node路径为'getinfo\'，当前node路径为'group\'，则把'group\'节点拆分成'g'父节点和'roup\'子节点
 			if i < len(n.path) {
+				// 创建'roup\'子节点
 				child := node{
 					path:      n.path[i:],
 					wildChild: n.wildChild,
@@ -119,18 +134,21 @@ func (n *node) addRoute(path string, handle Handle) {
 					}
 				}
 
+				// 把'roup\'子节点放在原来的节点，现在的'g'节点下面
 				n.children = []*node{&child}
 				// []byte for proper unicode char conversion, see #65
 				n.indices = string([]byte{n.path[i]})
-				n.path = path[:i]
+				n.path = path[:i] // 在这里把当前节点的路径从'group\'改成'g'
 				n.handle = nil
 				n.wildChild = false
 			}
 
 			// Make new node a child of this node
+			// 第二步，如果待添加节点匹配了当前节点，则循环匹配当前节点的子节点。循环是通过goto语句实现的。
 			if i < len(path) {
 				path = path[i:]
 
+				// 判断当前节点存在通配符的情况
 				if n.wildChild {
 					n = n.children[0]
 					n.priority++
@@ -165,7 +183,7 @@ func (n *node) addRoute(path string, handle Handle) {
 
 				c := path[0]
 
-				// slash after param
+				// 如果当前节点是参数节点，即':name'格式，则直接找该节点的唯一子节点
 				if n.nType == param && c == '/' && len(n.children) == 1 {
 					n = n.children[0]
 					n.priority++
@@ -173,6 +191,7 @@ func (n *node) addRoute(path string, handle Handle) {
 				}
 
 				// Check if a child with the next path byte exists
+				// 查找匹配的子节点，然后把n变量指向这个子节点
 				for i := 0; i < len(n.indices); i++ {
 					if c == n.indices[i] {
 						i = n.incrementChildPrio(i)
@@ -181,7 +200,7 @@ func (n *node) addRoute(path string, handle Handle) {
 					}
 				}
 
-				// Otherwise insert it
+				// 此处确定节点位置后，就可以添加这个节点到前缀树中
 				if c != ':' && c != '*' {
 					// []byte for proper unicode char conversion, see #65
 					n.indices += string([]byte{c})
@@ -195,6 +214,8 @@ func (n *node) addRoute(path string, handle Handle) {
 				n.insertChild(numParams, path, fullPath, handle)
 				return
 
+				// 第三步，判断待添加节点的路径和当前节点的路径是否完全相同
+				// 如果完全相同，则报错
 			} else if i == len(path) { // Make node a (in-path) leaf
 				if n.handle != nil {
 					panic("a handle is already registered for path '" + fullPath + "'")
@@ -203,12 +224,14 @@ func (n *node) addRoute(path string, handle Handle) {
 			}
 			return
 		}
-	} else { // Empty tree
+	} else {
+		// 以下为当前节点是空节点的情况
 		n.insertChild(numParams, path, fullPath, handle)
 		n.nType = root
 	}
 }
 
+// 向前缀树上插入子节点
 func (n *node) insertChild(numParams uint8, path, fullPath string, handle Handle) {
 	var offset int // already handled bytes of the path
 

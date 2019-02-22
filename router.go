@@ -80,12 +80,10 @@ import (
 	"net/http"
 )
 
-// Handle is a function that can be registered to a route to handle HTTP
-// requests. Like http.HandlerFunc, but has a third parameter for the values of
-// wildcards (variables).
+// 用来表示外部传入的处理函数
 type Handle func(http.ResponseWriter, *http.Request, Params)
 
-// Param is a single URL parameter, consisting of a key and a value.
+// 记录从URL中解析出的参数值
 type Param struct {
 	Key   string
 	Value string
@@ -98,6 +96,7 @@ type Params []Param
 
 // ByName returns the value of the first Param which key matches the given name.
 // If no matching Param is found, an empty string is returned.
+// 获取某个参数值
 func (ps Params) ByName(name string) string {
 	for i := range ps {
 		if ps[i].Key == name {
@@ -109,7 +108,11 @@ func (ps Params) ByName(name string) string {
 
 // Router is a http.Handler which can be used to dispatch requests to different
 // handler functions via configurable routes
+
+// Router是一个处理器
 type Router struct {
+	// 这是一个字典，用于存放多棵路由前缀树
+	// 字典的key表示不同的HTTP METHOD，比如GET POST等。字典的value表示不同的HTTP METHOD所对应前缀树的root节点
 	trees map[string]*node
 
 	// Enables automatic redirection if the current route can't be matched but a
@@ -164,8 +167,7 @@ type Router struct {
 // Make sure the Router conforms with the http.Handler interface
 var _ http.Handler = New()
 
-// New returns a new initialized Router.
-// Path auto-correction, including trailing slashes, is enabled by default.
+// 调用New方法返回一个Router的实例
 func New() *Router {
 	return &Router{
 		RedirectTrailingSlash:  true,
@@ -175,6 +177,7 @@ func New() *Router {
 	}
 }
 
+// 以下均为缩写，实际处理的函数是Handle
 // GET is a shortcut for router.Handle("GET", path, handle)
 func (r *Router) GET(path string, handle Handle) {
 	r.Handle("GET", path, handle)
@@ -218,26 +221,33 @@ func (r *Router) DELETE(path string, handle Handle) {
 // This function is intended for bulk loading and to allow the usage of less
 // frequently used, non-standardized or custom methods (e.g. for internal
 // communication with a proxy).
+
+// 用于把路由规则添加到Router实例的路由树中
 func (r *Router) Handle(method, path string, handle Handle) {
+	// 给定的URL必须以/开头
 	if path[0] != '/' {
 		panic("path must begin with '/' in path '" + path + "'")
 	}
 
+	// 创建字典
 	if r.trees == nil {
 		r.trees = make(map[string]*node)
 	}
 
 	root := r.trees[method]
 	if root == nil {
+		// 创建空节点
 		root = new(node)
 		r.trees[method] = root
 	}
 
+	// 把URL和对应的处理函数添加到指定的前缀树上
 	root.addRoute(path, handle)
 }
 
 // HandlerFunc is an adapter which allows the usage of an http.HandlerFunc as a
 // request handle.
+// 调用这个方法，就能够接收http.HandlerFunc
 func (r *Router) HandlerFunc(method, path string, handler http.HandlerFunc) {
 	r.Handler(method, path, handler)
 }
@@ -283,30 +293,34 @@ func (r *Router) Lookup(method, path string) (Handle, Params, bool) {
 	return nil, nil, false
 }
 
+// 获取指定URL路径的METHOD白名单
 func (r *Router) allowed(path, reqMethod string) (allow string) {
-	if path == "*" { // server-wide
+	// 针对所有路径
+	if path == "*" {
 		for method := range r.trees {
 			if method == "OPTIONS" {
 				continue
 			}
 
-			// add request method to list of allowed methods
+			// 返回METHOD白名单
 			if len(allow) == 0 {
 				allow = method
 			} else {
 				allow += ", " + method
 			}
 		}
-	} else { // specific path
+		// 针对指定路径
+	} else {
 		for method := range r.trees {
 			// Skip the requested method - we already tried this one
 			if method == reqMethod || method == "OPTIONS" {
 				continue
 			}
 
+			// 查看每个METHOD下是否有指定路径所对应的处理函数
 			handle, _, _ := r.trees[method].getValue(path)
 			if handle != nil {
-				// add request method to list of allowed methods
+				// 返回METHOD白名单
 				if len(allow) == 0 {
 					allow = method
 				} else {
