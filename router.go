@@ -335,7 +335,8 @@ func (r *Router) allowed(path, reqMethod string) (allow string) {
 	return
 }
 
-// ServeHTTP makes the router implement the http.Handler interface.
+// Router结构体实现ServeHTTP接口，这样它的实例就能够作为http.ListenAndServe方法的第二个参数使用
+// 每个请求都会进入到这里进行处理
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if r.PanicHandler != nil {
 		defer r.recv(w, req)

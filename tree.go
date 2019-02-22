@@ -18,7 +18,7 @@ func min(a, b int) int {
 	return b
 }
 
-// 返回URL中参数的个数，最多255个
+// 返回URL中:和*的个数，最多255个
 func countParams(path string) uint8 {
 	var n uint
 	for i := 0; i < len(path); i++ {
@@ -45,19 +45,21 @@ const (
 // 定义前缀树节点
 // 这棵前缀树是通过指针数组来构建的
 type node struct {
-	//当前节点的URL路径
+	// 当前节点的URL路径
 	path string
-	//是否有通配符
+	// 是否有通配符
 	wildChild bool
-	//节点类型
+	// 节点类型
 	nType     nodeType
 	maxParams uint8
-	indices   string
-	//节点的子节点
+	// 这个字符串将记录当前节点每个子节点的路径的第一个字符
+	// 这样待匹配路径匹配了当前节点之后，就知道去哪个子节点进行下一步的匹配
+	indices string
+	// 节点的子节点
 	children []*node
-	//处理函数
+	// 处理函数
 	handle Handle
-	//优先级
+	// 优先级
 	priority uint32
 }
 
@@ -114,7 +116,7 @@ func (n *node) addRoute(path string, handle Handle) {
 			}
 
 			// 第一步，判断当前节点是否需要拆分成父子两个节点
-			// 比如需要添加的node路径为'getinfo\'，当前node路径为'group\'，则把'group\'节点拆分成'g'父节点和'roup\'子节点
+			// 比如需要添加的node路径为'getinfo/'，当前node路径为'group/'，则把'group/'节点拆分成'g'父节点和'roup/'子节点
 			if i < len(n.path) {
 				// 创建'roup\'子节点
 				child := node{
@@ -134,11 +136,11 @@ func (n *node) addRoute(path string, handle Handle) {
 					}
 				}
 
-				// 把'roup\'子节点放在原来的节点，现在的'g'节点下面
+				// 把'roup\'子节点放在原来的节点（现在的'g'节点）下面
 				n.children = []*node{&child}
 				// []byte for proper unicode char conversion, see #65
 				n.indices = string([]byte{n.path[i]})
-				n.path = path[:i] // 在这里把当前节点的路径从'group\'改成'g'
+				n.path = path[:i] // 在这里把当前节点的路径从'group/'改成'g'
 				n.handle = nil
 				n.wildChild = false
 			}
@@ -227,6 +229,7 @@ func (n *node) addRoute(path string, handle Handle) {
 	} else {
 		// 以下为当前节点是空节点的情况
 		n.insertChild(numParams, path, fullPath, handle)
+		// 把当前节点设置为root节点
 		n.nType = root
 	}
 }
